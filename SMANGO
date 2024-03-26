@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.2;
+
+// Importing PancakeSwap router interface for BSC
+interface IPancakeRouter02 {
+    function swapExactTokensForTokens(
+        uint amountIn,
+        uint amountOutMin,
+        address[] calldata path,
+        address to,
+        uint deadline
+    ) external returns (uint[] memory amounts);
+}
+
+contract SMANGOToken {
+    mapping(address => uint) public balances;
+    mapping(address => mapping(address => uint)) public allowance;
+    mapping(address => uint) public lockTime;
+    uint public totalSupply = 1000000000000 * 10 ** 18; // Adjusted to 18 decimals for consistency
+    string public name = "Swagger Mango";
+    string public symbol = "SMANGO";
+    uint public decimals = 18;
+    address public owner;
+    IPancakeRouter02 public pancakeRouter;
+    event Transfer(address indexed from, address indexed to, uint value);
+    event Approval(address indexed owner, address indexed spender, uint value);
+    event Lock(address indexed locker, uint256 lockTime);
+    event Unlock(address indexed locker);
+    event Burn(address indexed burner, uint256 value);
+    
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only the owner can call this function.");
+        _;
+    }
+    
+    constructor() {
+        owner = address(0); // Set the owner address
+        pancakeRouter = IPancakeRouter02(address(0)); // Set the PancakeSwap router address
+        balances[owner] = totalSupply;
+        emit Transfer(address(0), owner, totalSupply);
+    }
+    
+    function balanceOf(address account) public view returns (uint) {
+        return balances[account];
+    }
+    
+    function transfer(address recipient, uint amount) public returns (bool) {
+        require(balances[msg.sender] >= amount, "Insufficient balance.");
+        require(block.timestamp > lockTime[msg.sender], "Tokens are locked.");
+        
+        uint burnAmount = (amount * 2) / 100; // Calculate 2% of the transaction amount to burn
+        uint transferAmount = amount - burnAmount; // Subtract burn amount from transaction amount
+        
+        balances[msg.sender] -= amount;
+        balances[recipient] += transferAmount;
+        totalSupply -= burnAmount; // Reduce total supply
+        
+        emit Transfer(msg.sender, recipient, transferAmount);
+        emit Burn(msg.sender, burnAmount);
+        
+        return true;
+    }
+    
+    function approve(address spender, uint value) public returns (bool) {
+        allowance[msg.sender][spender] = value;
+        emit Approval(msg.sender, spender, value);
+        return true;
+    }
+    
+    function lockTokens() public returns (bool) {
+        require(balances[msg.sender] > 0, "Insufficient balance to lock.");
+        require(block.timestamp >= lockTime[msg.sender], "Tokens already locked.");
+        lockTime[msg.sender] = block.timestamp + (7 * 1 days); // Lock for 7 days
+        emit Lock(msg.sender, lockTime[msg.sender]);
+        return true;
+    }
+    
+    function unlockTokens() public returns (bool) {
+        require(lockTime[msg.sender] <= block.timestamp, "Tokens are still locked.");
+        emit Unlock(msg.sender);
+        lockTime[msg.sender] = 0;
+        return true;
+    }
+    
+    function burn(uint256 _value) public returns (bool) {
+        require(_value <= balances[msg.sender], "Insufficient balance to burn.");
+        balances[msg.sender] -= _value;
+        totalSupply -= _value;
+        emit Burn(msg.sender, _value);
+        return true;
+    }
+    
+    function swapTokensForTokens(
+        uint amountIn,
+        uint amountOutMin,
+        address[] calldata path
+    ) external {
+        require(path[0] == address(this), "First token in path must be SMANGO.");
+        require(balances[msg.sender] >= amountIn, "Insufficient SMANGO balance.");
+        approve(address(pancakeRouter), amountIn);
+        pancakeRouter.swapExactTokensForTokens(amountIn, amountOutMin, path, msg.sender, block.timestamp + 120);
+    }
+    
+    function lockOwnerTokens() public onlyOwner returns (bool) {
+        require(block.timestamp >= lockTime[owner], "Tokens already locked.");
+        lockTime[owner] = block.timestamp + (60 * 1 days); // Lock for 60 days
+        emit Lock(owner, lockTime[owner]);
+        return true;
+    }
+}
